@@ -1,15 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import ProductGrid from './components/ProductGrid';
 import AdminPanel from './components/AdminPanel';
+import About from './components/About';
 
 function useCart() {
   const [items, setItems] = useState([]);
   const add = (p) => setItems((prev) => {
     const existing = prev.find((i) => i.id === p.id);
     if (existing) {
-      return prev.map((i) => i.id === p.id ? { ...i, qty: i.qty + 1 } : i);
+      return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
     }
     return [...prev, { ...p, qty: 1 }];
   });
@@ -22,22 +23,42 @@ export default function App() {
   const cart = useCart();
   const [orders, setOrders] = useState([]);
   const [adminView, setAdminView] = useState(false);
+  const productsRef = useRef(null);
 
-  const handleCreateProduct = (product) => {
-    // In a full app, send to backend. Here we just show a toast-like feedback in AdminPanel
-    console.log('Created product', product);
+  useEffect(() => {
+    // Try loading existing orders from backend if configured, otherwise ignore
+    const base = import.meta.env.VITE_BACKEND_URL;
+    if (!base) return;
+    fetch(`${base}/api/orders`).then(r => r.ok ? r.json() : null).then((data) => {
+      if (Array.isArray(data)) setOrders(data);
+    }).catch(() => {});
+  }, []);
+
+  const handleCreateProduct = async (product) => {
+    const base = import.meta.env.VITE_BACKEND_URL;
+    if (base) {
+      try {
+        await fetch(`${base}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(product) });
+      } catch (_) {}
+    }
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cart.items.length === 0) return;
     const order = {
-      id: crypto.randomUUID(),
-      items: cart.items,
+      items: cart.items.map(({ id, title, price, qty, img }) => ({ id, title, price, qty, img })),
       total: cart.total,
       createdAt: new Date().toISOString(),
     };
-    // In a full app, send to backend; we store locally to simulate admin receiving.
-    setOrders((prev) => [order, ...prev]);
+
+    const base = import.meta.env.VITE_BACKEND_URL;
+    if (base) {
+      try {
+        await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order) });
+      } catch (_) {}
+    }
+
+    setOrders((prev) => [{ id: crypto.randomUUID(), ...order }, ...prev]);
     cart.clear();
     alert('Order placed! The admin has received it.');
   };
@@ -46,14 +67,16 @@ export default function App() {
     <div className="min-h-screen bg-[#0b0b10] text-white">
       <Navbar
         cartCount={cart.items.reduce((n, i) => n + i.qty, 0)}
-        onNavigateShop={() => setAdminView(false)}
+        onNavigateShop={() => { setAdminView(false); productsRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
         onNavigateAdmin={() => setAdminView(true)}
       />
 
       {!adminView && (
         <>
           <Hero />
-          <ProductGrid onAddToCart={cart.add} />
+          <div ref={productsRef}>
+            <ProductGrid onAddToCart={cart.add} />
+          </div>
           <section className="py-12">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -71,6 +94,7 @@ export default function App() {
               </div>
             </div>
           </section>
+          <About />
         </>
       )}
 
